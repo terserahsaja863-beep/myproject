@@ -1,0 +1,2 @@
+Set-Location "C:\Users\LENOVO\Documents\Codex\2026-06-26\saya-ingin-membuat-project-smart-document"
+& "C:\Users\LENOVO\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" -m streamlit run app.py --server.port 8501 --server.headless true --browser.gatherUsageStats false *> "C:\Users\LENOVO\Documents\Codex\2026-06-26\saya-ingin-membuat-project-smart-document\work\streamlit.launch.log"
