@@ -1,66 +1,88 @@
 import streamlit as st
+from PIL import Image
 
-from src.state import configure_logging, initialize_session_state
-from src.ui import configure_page, info_card, metric_card, render_header, render_sidebar
+from preprocessing import apply_scan_mode, adjust_brightness_contrast
+from scanner import scan_document
+from utils import cv2_to_pil, image_to_jpg_bytes, image_to_pdf_bytes, pil_to_cv2
 
 
-configure_logging()
-configure_page("Dashboard | Smart Document Scanner")
-render_sidebar()
-initialize_session_state()
-render_header()
+st.set_page_config(
+    page_title="Smart Document Scanner",
+    layout="wide",
+)
 
-history_count = len(st.session_state.history)
-latest_item = st.session_state.history[0] if st.session_state.history else None
 
-stats = st.columns(4)
-with stats[0]:
-    metric_card("Total Scan", str(st.session_state.total_scan), "Current session")
-with stats[1]:
-    metric_card("Processing Time", f"{st.session_state.processing_time:.2f}s", "Last OpenCV process")
-with stats[2]:
-    metric_card("Resolution", st.session_state.last_resolution, "Latest result")
-with stats[3]:
-    metric_card("Current Filter", st.session_state.current_filter, "Active mode")
+def main():
+    st.title("Smart Document Scanner")
 
-st.write("")
-
-left, right = st.columns([1.35, 0.85], gap="large")
-with left:
-    st.markdown(
-        """
-        <div class="glass-card">
-            <div class="panel-title">Workspace Overview</div>
-            <div class="soft-note">
-                Kelola alur scan dokumen dengan tampilan SaaS modern. Aplikasi ini sudah
-                terhubung ke pipeline OpenCV untuk scan, enhancement, filter, export, dan history.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    st.sidebar.header("Pengaturan Scan")
+    scan_mode = st.sidebar.selectbox(
+        "Mode scan",
+        ["Original", "Grayscale", "High Contrast", "Black & White"],
     )
-    st.write("")
-    st.markdown('<div class="feature-row">', unsafe_allow_html=True)
-    cols = st.columns(3)
-    with cols[0]:
-        info_card("📄", "Scanner Ready", "Upload JPG, PNG, atau JPEG dan proses dokumen dengan pipeline OpenCV.")
-    with cols[1]:
-        info_card("✨", "Enhancement Tools", "Brightness, contrast, edge detection, sharpen, rotate, dan filter bekerja real-time.")
-    with cols[2]:
-        info_card("☁", "Cloud Friendly", "Siap diunggah ke GitHub dan dideploy ke Streamlit Community Cloud.")
-    st.markdown("</div>", unsafe_allow_html=True)
+    brightness = st.sidebar.slider("Brightness", -100, 100, 0)
+    contrast = st.sidebar.slider("Contrast", 0.5, 3.0, 1.2, 0.1)
 
-with right:
-    st.markdown(
-            """
-            <div class="glass-card">
-                <div class="panel-title">Recent Activity</div>
-                <p class="soft-note">Ringkasan aktivitas pemrosesan pada sesi ini.</p>
-                <div class="filter-pill">🟢 Scanner interface online</div>
-                <div class="filter-pill">🧪 OpenCV pipeline ready</div>
-                <div class="filter-pill">🕒 {history_count} history item(s)</div>
-                <div class="filter-pill">📄 Latest: {latest}</div>
-            </div>
-        """.format(history_count=history_count, latest=latest_item["Nama File"] if latest_item else "No scan yet"),
-        unsafe_allow_html=True,
+    uploaded_file = st.file_uploader(
+        "Upload gambar dokumen",
+        type=["jpg", "jpeg", "png"],
     )
+
+    if uploaded_file is None:
+        st.info("Silakan upload gambar dokumen berformat JPG atau PNG.")
+        return
+
+    if st.session_state.get("uploaded_file_name") != uploaded_file.name:
+        st.session_state.uploaded_file_name = uploaded_file.name
+        st.session_state.scan_result = None
+
+    original_pil = Image.open(uploaded_file).convert("RGB")
+    original_cv = pil_to_cv2(original_pil)
+
+    left_col, right_col = st.columns(2)
+
+    with left_col:
+        st.subheader("Gambar Asli")
+        st.image(original_pil, use_container_width=True)
+
+    scan_button = st.button("Scan Document", type="primary")
+
+    if "scan_result" not in st.session_state:
+        st.session_state.scan_result = None
+
+    if scan_button:
+        with st.spinner("Memindai dokumen dan memperbaiki perspektif..."):
+            scanned = scan_document(original_cv)
+            enhanced = adjust_brightness_contrast(scanned, brightness, contrast)
+            result = apply_scan_mode(enhanced, scan_mode)
+            st.session_state.scan_result = result
+
+    with right_col:
+        st.subheader("Hasil Scan")
+        if st.session_state.scan_result is None:
+            st.warning("Klik tombol Scan Document untuk melihat hasil scan.")
+        else:
+            st.image(cv2_to_pil(st.session_state.scan_result), use_container_width=True)
+
+            jpg_bytes = image_to_jpg_bytes(st.session_state.scan_result)
+            pdf_bytes = image_to_pdf_bytes(st.session_state.scan_result)
+
+            download_col_1, download_col_2 = st.columns(2)
+            with download_col_1:
+                st.download_button(
+                    "Download Hasil (JPG)",
+                    data=jpg_bytes,
+                    file_name="hasil_scan.jpg",
+                    mime="image/jpeg",
+                )
+            with download_col_2:
+                st.download_button(
+                    "Download PDF",
+                    data=pdf_bytes,
+                    file_name="hasil_scan.pdf",
+                    mime="application/pdf",
+                )
+
+
+if __name__ == "__main__":
+    main()
